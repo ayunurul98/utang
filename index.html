@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pencatatan Utang</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 2rem;
+      max-width: 900px;
+      margin: auto;
+      background: #fafafa;
+    }
+    input, button, select {
+      padding: 0.5rem;
+      font-size: 1rem;
+    }
+    .form-row {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .form-group {
+      flex: 1;
+      min-width: 150px;
+    }
+    label {
+      font-weight: bold;
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+    table {
+      width: 100%;
+      margin-top: 1rem;
+      border-collapse: collapse;
+      background: white;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 0.5rem;
+      text-align: left;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+    .pagination {
+      margin-top: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .pagination button {
+      margin: 0 0.25rem;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    hr {
+      margin: 2rem 0 1rem;
+    }
+    .btn {
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>📒 Pencatatan Utang</h1>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label for="nama">Nama:</label>
+      <input type="text" id="nama" list="daftarNama" placeholder="Contoh: Budi">
+      <datalist id="daftarNama"></datalist>
+    </div>
+    <div class="form-group">
+      <label for="hapusNamaSelect">🧹 Hapus Nama:</label>
+      <div style="display:flex; gap: 0.5rem;">
+        <select id="hapusNamaSelect"></select>
+        <button onclick="hapusNamaLog()">🗑️</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label for="barang">Barang:</label>
+      <input type="text" id="barang" list="daftarBarang" oninput="isiHargaBarang()" placeholder="Contoh: MAKAN">
+      <datalist id="daftarBarang"></datalist>
+    </div>
+    <div class="form-group">
+      <label for="jumlah">Jumlah (Rp):</label>
+      <input type="number" id="jumlah" placeholder="Contoh: 50000">
+    </div>
+  </div>
+
+  <div class="form-row">
+    <button onclick="tambahUtang()" class="btn">Tambah Utang</button>
+    <button onclick="eksporExcel()" class="btn">📤 Ekspor ke Excel</button>
+  </div>
+
+  <hr>
+
+  <div class="form-row">
+    <label for="perPage">Tampilkan per halaman:</label>
+    <select id="perPage" onchange="changePerPage()">
+      <option value="10">10</option>
+      <option value="50">50</option>
+      <option value="100">100</option>
+    </select>
+  </div>
+
+  <table id="tabelUtang">
+    <thead>
+      <tr>
+        <th>No</th>
+        <th>Nama</th>
+        <th>Barang</th>
+        <th>Jumlah (Rp)</th>
+        <th>Aksi</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <div class="pagination">
+    <div>
+      <button onclick="prevPage()">⬅️ Sebelumnya</button>
+      <span id="pageInfo">Halaman 1</span>
+      <button onclick="nextPage()">➡️ Selanjutnya</button>
+    </div>
+  </div>
+
+<script>
+  let dataUtang = [];
+  let historiNama = new Set();
+  let historiBarang = {};
+  let currentPage = 1;
+  let perPage = 10;
+
+  window.onload = function () {
+    const saved = localStorage.getItem("dataUtang");
+    if (saved) dataUtang = JSON.parse(saved);
+
+    const namaLog = localStorage.getItem("historiNama");
+    if (namaLog) historiNama = new Set(JSON.parse(namaLog));
+
+    const barangLog = localStorage.getItem("historiBarang");
+    if (barangLog) historiBarang = JSON.parse(barangLog);
+
+    renderTabel();
+    renderDatalist();
+  };
+
+  function simpanLocal() {
+    localStorage.setItem("dataUtang", JSON.stringify(dataUtang));
+    localStorage.setItem("historiNama", JSON.stringify(Array.from(historiNama)));
+    localStorage.setItem("historiBarang", JSON.stringify(historiBarang));
+  }
+
+  function tambahUtang() {
+    const nama = document.getElementById('nama').value.trim();
+    const barang = document.getElementById('barang').value.trim();
+    const jumlah = parseInt(document.getElementById('jumlah').value);
+
+    if (!nama || !barang || isNaN(jumlah)) {
+      alert("Mohon lengkapi nama, barang, dan jumlah.");
+      return;
+    }
+
+    dataUtang.push({ nama, barang, jumlah });
+    historiNama.add(nama);
+    historiBarang[barang] = jumlah;
+
+    simpanLocal();
+    renderTabel();
+    renderDatalist();
+
+    document.getElementById('nama').value = '';
+    document.getElementById('barang').value = '';
+    document.getElementById('jumlah').value = '';
+  }
+
+  function renderTabel() {
+    const tbody = document.querySelector("#tabelUtang tbody");
+    tbody.innerHTML = '';
+
+    const sorted = [...dataUtang].sort((a, b) => a.nama.localeCompare(b.nama));
+    const start = (currentPage - 1) * perPage;
+    const pageData = sorted.slice(start, start + perPage);
+
+    pageData.forEach((utang, index) => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${start + index + 1}</td>
+        <td>${utang.nama}</td>
+        <td>${utang.barang}</td>
+        <td>Rp${utang.jumlah.toLocaleString()}</td>
+        <td><button onclick="hapusUtang(${dataUtang.indexOf(utang)})">Lunasi</button></td>
+      `;
+      tbody.appendChild(row);
+    });
+
+    const totalPages = Math.ceil(sorted.length / perPage);
+    document.getElementById("pageInfo").textContent = `Halaman ${currentPage} dari ${totalPages}`;
+  }
+
+  function renderDatalist() {
+    const daftarNama = document.getElementById('daftarNama');
+    daftarNama.innerHTML = '';
+    const hapusSelect = document.getElementById('hapusNamaSelect');
+    hapusSelect.innerHTML = '';
+
+    Array.from(historiNama).sort().forEach(nama => {
+      const option = document.createElement('option');
+      option.value = nama;
+      daftarNama.appendChild(option);
+
+      const selectOption = document.createElement('option');
+      selectOption.value = nama;
+      selectOption.textContent = nama;
+      hapusSelect.appendChild(selectOption);
+    });
+
+    const daftarBarang = document.getElementById('daftarBarang');
+    daftarBarang.innerHTML = '';
+    Object.keys(historiBarang).sort().forEach(barang => {
+      const option = document.createElement('option');
+      option.value = barang;
+      daftarBarang.appendChild(option);
+    });
+  }
+
+  function isiHargaBarang() {
+    const barang = document.getElementById('barang').value.trim();
+    if (barang in historiBarang) {
+      document.getElementById('jumlah').value = historiBarang[barang];
+    }
+  }
+
+  function hapusUtang(index) {
+    if (confirm("Apakah utang ini sudah lunas?")) {
+      dataUtang.splice(index, 1);
+      simpanLocal();
+      renderTabel();
+    }
+  }
+
+  function eksporExcel() {
+    if (dataUtang.length === 0) {
+      alert("Tidak ada data untuk diekspor.");
+      return;
+    }
+
+    const sorted = [...dataUtang].sort((a, b) => a.nama.localeCompare(b.nama));
+    const worksheetData = [["No", "Nama", "Barang", "Jumlah (Rp)"]];
+
+    sorted.forEach((item, index) => {
+      worksheetData.push([
+        index + 1,
+        item.nama,
+        item.barang,
+        `Rp. ${item.jumlah.toLocaleString()}`
+      ]);
+    });
+
+    const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Data Utang");
+
+    XLSX.writeFile(workbook, "data_utang.xlsx");
+  }
+
+  function hapusNamaLog() {
+    const select = document.getElementById('hapusNamaSelect');
+    const namaDipilih = select.value;
+
+    if (!namaDipilih || !historiNama.has(namaDipilih)) {
+      alert("Pilih nama yang valid.");
+      return;
+    }
+
+    if (confirm(`Yakin ingin menghapus "${namaDipilih}" dari daftar log?`)) {
+      historiNama.delete(namaDipilih);
+      simpanLocal();
+      renderDatalist();
+    }
+  }
+
+  function changePerPage() {
+    perPage = parseInt(document.getElementById('perPage').value);
+    currentPage = 1;
+    renderTabel();
+  }
+
+  function prevPage() {
+    if (currentPage > 1) {
+      currentPage--;
+      renderTabel();
+    }
+  }
+
+  function nextPage() {
+    const totalPages = Math.ceil(dataUtang.length / perPage);
+    if (currentPage < totalPages) {
+      currentPage++;
+      renderTabel();
+    }
+  }
+</script>
+
+</body>
+</html>
